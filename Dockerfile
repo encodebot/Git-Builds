@@ -1,4 +1,4 @@
-FROM ubuntu:26.04 AS builder
+FROM ubuntu:24.04 AS builder
 
 # Enforce strict error handling. Instantly aborts on any hidden failure.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
