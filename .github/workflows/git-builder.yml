@@ -39,7 +39,7 @@ jobs:
           echo "💡 Latest Git version detected: $GIT_VERSION"
 
           # Fetch latest release tag safely using strict JSON parsing
-          LATEST_RELEASE=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "none")
+          LATEST_RELEASE=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // "none"' 2>/dev/null || echo "none")
           echo "💡 Current repository latest release: $LATEST_RELEASE"
 
           if [ "v$GIT_VERSION" == "$LATEST_RELEASE" ]; then
@@ -132,13 +132,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Safely fetch the old release tag using JSON
-          OLD_RELEASE_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "none")
-          if [ "$OLD_RELEASE_TAG" != "none" ]; then
+          # Safely fetch the old release tag using JSON. Fallback to "none" if empty.
+          OLD_RELEASE_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // "none"' 2>/dev/null || echo "none")
+          if [ "$OLD_RELEASE_TAG" != "none" ] && [ "$OLD_RELEASE_TAG" != "null" ]; then
             OLD_TITLE=$(gh release view "$OLD_RELEASE_TAG" --json name -q .name)
             NEW_OLD_TITLE=$(echo "$OLD_TITLE" | sed 's/ - Latest//g')
             echo "Renaming old release '$OLD_TITLE' to '$NEW_OLD_TITLE'"
             gh release edit "$OLD_RELEASE_TAG" --title "$NEW_OLD_TITLE" || true
+          else
+            echo "✅ No previous Release found. Skipping Rename."
           fi
 
       - name: Create GitHub Release
@@ -182,6 +184,7 @@ jobs:
           
           COUNT=0
           for REL in $RELEASES; do
+            if [ -z "$REL" ] || [ "$REL" == "null" ]; then continue; fi
             COUNT=$((COUNT+1))
             if [ $COUNT -gt 4 ]; then
               echo "🗑️ Deleting old release: $REL"
