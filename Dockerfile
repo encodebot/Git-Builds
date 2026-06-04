@@ -33,9 +33,10 @@ RUN wget --progress=dot:giga "https://mirrors.edge.kernel.org/pub/software/scm/g
 WORKDIR /git-${GIT_VERSION}
 
 # Compile with multi-core support directly passed to make.
-# NO_TCLTK=1 disables the GUI tools (gitk) which do not need for a headless binary.
-RUN make -j"$(nproc)" prefix=/git-build NO_TCLTK=1 all && \
-    make prefix=/git-build NO_TCLTK=1 install
+# NO_TCLTK=1 disables the GUI tools.
+# NO_INSTALL_HARDLINKS=1 prevents Docker extraction bloat by using symlinks
+RUN make -j"$(nproc)" prefix=/git-build NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 all && \
+    make prefix=/git-build NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 install
 
 # Strip debugging symbols to shrink the final size.
 # Because Git contains shell scripts in its libexec folder, I use 'file' to ensure 
