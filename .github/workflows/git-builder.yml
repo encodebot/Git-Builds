@@ -213,6 +213,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          git checkout -B keepalive
+          git checkout -B dev
           git commit --allow-empty -m "chore: keepalive to prevent GitHub Actions cron pause [skip ci]"
-          git push origin keepalive --force
+          git push origin dev --force
