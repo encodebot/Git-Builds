@@ -1,11 +1,12 @@
-FROM ubuntu:24.04 AS builder
+FROM debian:trixie-slim AS builder
 
 # Enforce strict error handling. Instantly aborts on any hidden failure.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Set non-interactive frontend for apt to prevent hanging prompts
 ENV DEBIAN_FRONTEND=noninteractive
-
+# Accept Git version as a dynamic build argument
+ARG GIT_VERSION
 # Install prerequisites required for Git compilation
 # Git requires specific libraries like OpenSSL, Curl, and Expat to function properly.
 # Also install 'file' to safely identify binaries for stripping.
@@ -22,9 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gettext \
     file \
     && rm -rf /var/lib/apt/lists/*
-
-# Accept Git version as a dynamic build argument
-ARG GIT_VERSION
 
 # Download and extract Git source safely with CI-friendly wget progress
 RUN wget --progress=dot:giga "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.gz" -O git_src.tar.gz && \
