@@ -1,15 +1,15 @@
-FROM debian:trixie-slim AS builder
+FROM debian:forky-slim AS builder
 
-# Enforce strict error handling. Instantly aborts on any hidden failure.
+# Enforce Strict Error Handling. Instantly Aborts On Any Hidden Failure.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Set non-interactive frontend for apt to prevent hanging prompts
+# Set Non-Interactive Frontend For Apt To Prevent Hanging Prompts.
 ENV DEBIAN_FRONTEND=noninteractive
-# Accept Git version as a dynamic build argument
+# Accept Git Version As A Dynamic Build Argument.
 ARG GIT_VERSION
-# Install prerequisites required for Git compilation
-# Git requires specific libraries like OpenSSL, Curl, and Expat to function properly.
-# Also install 'file' to safely identify binaries for stripping.
+# Git Requires Specific Libraries Like OpenSSL, Curl & Expat To Function Properly.
+# Also Install 'file' To Safely Identify Binaries For Stripping.
+# 1. Install Prerequisites Required For Git Compilation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -24,23 +24,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract Git source safely with CI-friendly wget progress
+# 2. Download & Extract Git Source Safely With CI-Friendly wget Progress.
 RUN wget --progress=dot:giga "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.gz" -O git_src.tar.gz && \
     tar -xzf git_src.tar.gz
 
 WORKDIR /git-${GIT_VERSION}
 
-# Compile with multi-core support directly passed to make.
-# NO_TCLTK=1 disables the GUI tools.
-# NO_INSTALL_HARDLINKS=1 prevents Docker extraction bloat by using symlinks
+# NO_TCLTK=1 Disables The GUI Tools.
+# NO_INSTALL_HARDLINKS=1 Prevents Docker Extraction Bloat By Using Symlinks.
+# 3. Compile With Multi-Core Support Directly Passed To Make.
 RUN make -j"$(nproc)" prefix=/git-build NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 all && \
     make prefix=/git-build NO_TCLTK=1 NO_INSTALL_HARDLINKS=1 install
 
-# Strip debugging symbols to shrink the final size.
-# Because Git contains shell scripts in its libexec folder, I use 'file' to ensure 
-# ONLY run 'strip' on actual ELF compiled binaries, preventing corruption.
+# Because Git Contains Shell Scripts In Its libexec Folder, I Use 'file' To Ensure 
+# ONLY Run 'strip' On Actual ELF Compiled Binaries, Preventing Corruption.
+# 4. Strip Debugging Symbols From The Actual Binaries To Shrink The Final Size.
 RUN find /git-build -type f -exec sh -c 'file "{}" | grep -q "ELF" && strip --strip-all "{}" || true' \;
 
-# Use a scratch image to export the ENTIRE compiled directory structure back to the host
+# 5. Use A Scratch Image To Export The ENTIRE Compiled Directory Structure Back To The Host.
 FROM scratch AS export-stage
 COPY --from=builder /git-build /
