@@ -2,6 +2,9 @@ name: Build Git
 
 on:
   push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   schedule:
     # Runs Every Week At 12:00 AM UTC On Mondays, Wednesdays & Fridays.
     - cron: '0 0 * * 1,3,5'
@@ -12,26 +15,28 @@ permissions:
 
 jobs:
   check-version:
-    name: Safety Measure & Version Check
+    name: Pre Checks
     runs-on: ubuntu-26.04
     timeout-minutes: 140
     outputs:
-      build_needed: ${{ steps.check.outputs.build_needed }}
-      version: ${{ steps.check.outputs.version }}
+      build_needed: ${{ steps.check.outputs.build_needed || 'False' }}
+      version: ${{ steps.check.outputs.version || 'Skipped' }}
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v7
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
-      - name: Check Upstream Version vs Latest Release
+      - name: Check Upstream Version
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
- 
+
           echo "Fetching Latest Git Source..."
           # Uses advanced RegEx to extract ONLY stable versions (ignores -rc release candidates)
-          GIT_VERSION=$(curl -fsSL "https://mirrors.edge.kernel.org/pub/software/scm/git/" | grep -oP '(?<=git-)\d+\.\d+\.\d+(?=\.tar\.gz)' | sort -Vu | tail -n 1)
+          GIT_VERSION=$(curl -fsSL "https://www.kernel.org/pub/software/scm/git/" | grep -oP '(?<=git-)\d+\.\d+\.\d+(?=\.tar\.gz)' | sort -Vu | tail -n 1)
           test -n "$GIT_VERSION" || { echo "❌ FATAL ERROR: Failed to detect latest Git version."; exit 1; }
           echo "💡 Latest Git version detected: $GIT_VERSION"
 
@@ -50,30 +55,34 @@ jobs:
           fi
 
   build-binaries:
-    name: Compile Binaries (${{ matrix.visual_arch }})
+    name: Compile Binaries
     needs: check-version
     if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.check-version.outputs.build_needed == 'true'
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.visual_arch == 'LinuxARM64' && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
     timeout-minutes: 240 # 4-hour safety net for heavy compilation
     strategy:
       matrix:
-        include:
-          - arch: amd64
-            visual_arch: x64
-            runner: ubuntu-26.04
-            ext_name: linux64
-          - arch: arm64
-            visual_arch: ARM64
-            runner: ubuntu-26.04-arm
-            ext_name: linuxarm64
+        visual_arch: [Linux64, LinuxARM64]
     steps:
-      - name: Checkout code
+      - name: Free Disk-Space
+        run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
+
+      - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
+      - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build, Extract, and Compress Binary
+      - name: Build Base Image
+        id: vars
+        run: |
+          set -euo pipefail
+          case "${{ matrix.visual_arch }}" in
+            Linux64) echo "arch=amd64" >> $GITHUB_OUTPUT; echo "ext_name=linux64" >> $GITHUB_OUTPUT ;;
+            LinuxARM64) echo "arch=arm64" >> $GITHUB_OUTPUT; echo "ext_name=linuxarm64" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Build, Extract & Archive Git Binary
         run: |
           set -euo pipefail
           mkdir -p ./output ./artifacts
@@ -82,22 +91,22 @@ jobs:
           # --cache-to type=gha,mode=max,scope=git-${{ matrix.arch }} \
           # --cache-from type=gha,scope=git-${{ matrix.arch }} \
           docker buildx build \
-            --platform linux/${{ matrix.arch }} \
+            --platform linux/${{ steps.vars.outputs.arch }} \
             --build-arg GIT_VERSION=${{ needs.check-version.outputs.version }} \
             --output type=local,dest=./output \
             -f Dockerfile .
 
           # Navigate to output and compress the entire Git directory structure into a tar.xz archive
           cd ./output
-          TAR_FILENAME="git-master-latest-${{ matrix.ext_name }}-gpl.tar.xz"
+          TAR_FILENAME="git-master-latest-${{ steps.vars.outputs.ext_name }}-gpl.tar.xz"
           tar -cJf "../artifacts/$TAR_FILENAME" .
           cd ..
 
-      - name: Upload Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: git-${{ matrix.arch }}
-          path: ./artifacts/git-master-latest-${{ matrix.ext_name }}-gpl.tar.xz
+          name: git-${{ steps.vars.outputs.arch }}
+          path: ./artifacts/git-master-latest-${{ steps.vars.outputs.ext_name }}-gpl.tar.xz
           retention-days: 1
 
   release-and-cleanup:
@@ -107,7 +116,10 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 72 # Safety net for GitHub API uploads
     steps:
-      - name: Checkout code
+      - name: Free Disk-Space
+        run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
+
+      - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 2
@@ -142,7 +154,7 @@ jobs:
             echo "✅ No previous Release found. Skipping Rename."
           fi
 
-      - name: Create GitHub Release
+      - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
@@ -158,14 +170,16 @@ jobs:
             sleep 5
           fi
 
-          DATE_STR=$(date -u +'%d/%m/%Y At %H:%M')
+          DATE_STR=$(date -u +'%d/%m/%Y At %I:%M %p')
           COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
           PREV_HASH=$(git log -2 --pretty=%H | tail -n 1)
           
           cat <<EOF > release_notes.txt
-          This Latest Stable Automated Build Of Git Created On $DATE_STR
-          $COMMIT_MSG
-          This reverts commit $PREV_HASH.
+          **This Latest Stable Automated Build Of Git Created On $DATE_STR**
+
+          \`$COMMIT_MSG\`
+
+          \`This Reverts Commit\` $PREV_HASH.
           EOF
 
           echo "Creating release for $TAG_NAME..."
@@ -173,7 +187,7 @@ jobs:
             --title "Git $VERSION (Executable) - Latest" \
             --notes-file release_notes.txt
 
-      - name: Cleanup Old Releases (Keep Last 4)
+      - name: Cleanup Old Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -200,12 +214,15 @@ jobs:
     if: github.event_name == 'schedule'
     timeout-minutes: 61 # Safety net for git push
     steps:
-      - name: Checkout code
+      - name: Free Disk-Space
+        run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
+
+      - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Push Keepalive Commit
+      - name: Push Commit
         run: |
           set -euo pipefail
 

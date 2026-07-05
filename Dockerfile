@@ -10,23 +10,26 @@ ARG GIT_VERSION
 # Git Requires Specific Libraries Like OpenSSL, Curl & Expat To Function Properly.
 # Also Install 'file' To Safely Identify Binaries For Stripping.
 # 1. Install Prerequisites Required For Git Compilation.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get dist-upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
-    wget \
-    xz-utils \
     ca-certificates \
-    zlib1g-dev \
-    libssl-dev \
+    cargo \
+    curl \
+    file \
+    gettext \
     libcurl4-openssl-dev \
     libexpat1-dev \
-    gettext \
-    file \
+    libssl-dev \
+    rustc \
+    wget \
+    xz-utils \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Download & Extract Git Source Safely With CI-Friendly wget Progress.
-RUN wget --progress=dot:giga "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.gz" -O git_src.tar.gz && \
-    tar -xzf git_src.tar.gz
+RUN wget -q --show-progress --https-only --retry-connrefused --waitretry=5 --tries=5 --progress=dot:giga "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.gz" -O git_src.tar.gz && \
+    tar -xzf git_src.tar.gz && \
+    rm -rf git_src.tar.gz
 
 WORKDIR /git-${GIT_VERSION}
 
